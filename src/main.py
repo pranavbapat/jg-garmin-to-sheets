@@ -155,8 +155,8 @@ def load_user_profiles():
 
 @app.command()
 def cli_sync(
-    start_date: datetime = typer.Option(..., help="Start date in YYYY-MM-DD format."),
-    end_date: datetime = typer.Option(..., help="End date in YYYY-MM-DD format."),
+    start_date: str = typer.Option(..., help="Start date in YYYY-MM-DD format."),
+    end_date: str = typer.Option(..., help="End date in YYYY-MM-DD format."),
     profile: str = typer.Option("USER1", help="The user profile from .env to use (e.g., USER1)."),
     output_type: str = typer.Option("sheets", help="Output type: 'sheets' or 'csv'.")
 ):
@@ -175,11 +175,19 @@ def cli_sync(
         logger.error(f"Email or password not configured for profile '{profile}'.")
         sys.exit(1)
 
+    # Parse the date strings
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError as e:
+        logger.error(f"Invalid date format: {e}. Please use YYYY-MM-DD format.")
+        sys.exit(1)
+
     asyncio.run(sync(
         email=email,
         password=password,
-        start_date=start_date.date(),
-        end_date=end_date.date(),
+        start_date=start,
+        end_date=end,
         output_type=output_type,
         profile_data=selected_profile_data,
         profile_name=profile
