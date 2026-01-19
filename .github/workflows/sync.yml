@@ -47,8 +47,8 @@ jobs:
           # Set PYTHONPATH so 'from src.x import y' works correctly
           export PYTHONPATH=$PYTHONPATH:.
           
-          # Run the sync command
-          python src/main.py sync \
+          # Run the sync - no command name needed, just pass options directly
+          python src/main.py \
             --start-date "$START_DATE" \
             --end-date "$END_DATE" \
             --profile "USER1" \
