@@ -153,7 +153,7 @@ def load_user_profiles():
             profiles[profile_name][key_map[var_type]] = value
     return profiles
 
-@app.command()
+@app.command(name="sync")
 def cli_sync(
     start_date: str = typer.Option(..., help="Start date in YYYY-MM-DD format."),
     end_date: str = typer.Option(..., help="End date in YYYY-MM-DD format."),
