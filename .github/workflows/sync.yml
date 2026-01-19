@@ -26,11 +26,47 @@ jobs:
           google-api-python-client google-auth-oauthlib google-auth-httplib2
       
       - name: Create Credentials Directory
-        run: mkdir -p credentials
+        run: |
+          mkdir -p credentials/garmin_tokens_USER1
+          echo "Created directories"
       
       - name: Write Google Credentials File
-        # This takes your secret JSON and puts it where main.py expects it
-        run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > credentials/client_secret.json
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > credentials/client_secret.json
+          echo "Google credentials written"
+      
+      - name: Debug - Check if secrets exist
+        run: |
+          echo "Checking if GARMIN_OAUTH1_TOKEN secret exists..."
+          if [ -z "${{ secrets.GARMIN_OAUTH1_TOKEN }}" ]; then
+            echo "ERROR: GARMIN_OAUTH1_TOKEN is empty or not set!"
+          else
+            echo "GARMIN_OAUTH1_TOKEN exists (length: ${#GARMIN_OAUTH1_TOKEN})"
+          fi
+          
+          echo "Checking if GARMIN_OAUTH2_TOKEN secret exists..."
+          if [ -z "${{ secrets.GARMIN_OAUTH2_TOKEN }}" ]; then
+            echo "ERROR: GARMIN_OAUTH2_TOKEN is empty or not set!"
+          else
+            echo "GARMIN_OAUTH2_TOKEN exists (length: ${#GARMIN_OAUTH2_TOKEN})"
+          fi
+        env:
+          GARMIN_OAUTH1_TOKEN: ${{ secrets.GARMIN_OAUTH1_TOKEN }}
+          GARMIN_OAUTH2_TOKEN: ${{ secrets.GARMIN_OAUTH2_TOKEN }}
+      
+      - name: Write Garmin OAuth Tokens
+        run: |
+          echo '${{ secrets.GARMIN_OAUTH1_TOKEN }}' > credentials/garmin_tokens_USER1/oauth1_token.json
+          echo '${{ secrets.GARMIN_OAUTH2_TOKEN }}' > credentials/garmin_tokens_USER1/oauth2_token.json
+          
+          echo "Token files written, checking..."
+          ls -la credentials/garmin_tokens_USER1/
+          
+          echo "oauth1_token.json size:"
+          wc -c < credentials/garmin_tokens_USER1/oauth1_token.json
+          
+          echo "oauth2_token.json size:"
+          wc -c < credentials/garmin_tokens_USER1/oauth2_token.json
       
       - name: Execute Garmin Sync
         env:
@@ -39,6 +75,9 @@ jobs:
           USER1_GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           USER1_SHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           USER1_SHEET_NAME: "Garmin_Data"
+          # Add Garmin OAuth tokens if you have them stored
+          # USER1_GARMIN_OAUTH1: ${{ secrets.GARMIN_OAUTH1 }}
+          # USER1_GARMIN_OAUTH2: ${{ secrets.GARMIN_OAUTH2 }}
         run: |
           # Calculate dates for the CLI
           START_DATE=$(date -d "yesterday" '+%Y-%m-%d')
