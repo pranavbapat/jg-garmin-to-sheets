@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 import logging
 import re
+import garth
 
 from src.garmin_client import GarminClient
 from src.sheets_client import GoogleSheetsClient, GoogleAuthTokenRefreshError
@@ -26,27 +27,129 @@ app = typer.Typer()
 
 async def sync(email: str, password: str, start_date: date, end_date: date, output_type: str, profile_data: dict, profile_name: str = ""):
     """Core sync logic. Fetches data and writes to the specified output."""
-    try:
-        garmin_client = GarminClient(email, password)
-        await garmin_client.authenticate()
-
-    except MFARequiredException as e:
-        mfa_code = typer.prompt("MFA code required. Please enter it now")
-        try:
-            await garmin_client.submit_mfa_code(mfa_code)
-        except Exception as mfa_error:
-            error_msg = str(mfa_error)
-            if "rate limiting" in error_msg.lower() or "wait" in error_msg.lower():
-                print(f"\n⚠️  {error_msg}")
-                print("Please try running the application again later.")
-                sys.exit(1)
-            else:
-                logger.error(f"MFA submission failed: {error_msg}")
-                print(f"\n❌ MFA authentication failed: {error_msg}")
-                sys.exit(1)
     
-    except Exception as e:
-        logger.error(f"Authentication failed: {e}", exc_info=True)
+    # Setup garth token directory for this profile
+    token_dir = Path(f"./credentials/garmin_tokens_{profile_name}")
+    token_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Configure garth's home directory for storing tokens
+    os.environ["GARTH_HOME"] = str(token_dir)
+    
+    garmin_client = None
+    
+    # Try to resume from saved tokens first
+    try:
+        logger.info(f"Attempting to resume Garmin session from saved tokens in {token_dir}")
+        garth.resume(str(token_dir))
+        logger.info("Successfully resumed Garmin session from saved tokens!")
+        
+        # Create client with the resumed session
+        garmin_client = GarminClient(email, password)
+        garmin_client.client.garth = garth.client
+        
+        # Make sure profile is loaded
+        if not garmin_client.client.display_name:
+            profile = garth.client.profile
+            garmin_client.client.display_name = profile.get("displayName")
+            garmin_client.client.full_name = profile.get("fullName")
+            garmin_client.client.unit_system = profile.get("measurementSystem")
+            logger.info(f"Profile loaded: {garmin_client.client.display_name}")
+        
+        garmin_client._authenticated = True
+        
+    except Exception as resume_error:
+        logger.info(f"Could not resume from saved tokens: {resume_error}")
+        logger.info("Proceeding with fresh authentication using garth directly...")
+        
+        try:
+            # Use garth directly for authentication
+            logger.info("Step 1: Authenticating with Garth...")
+            
+            try:
+                # Try to login with garth
+                garth.login(email, password)
+                logger.info("✓ Garth authentication successful!")
+                
+                # Save the tokens
+                garth.save(str(token_dir))
+                logger.info(f"✓ Tokens saved to {token_dir}")
+                
+                # Create Garmin client and assign the authenticated garth client
+                garmin_client = GarminClient(email, password)
+                garmin_client.client.garth = garth.client
+                
+                # Load profile information
+                profile = garth.client.profile
+                garmin_client.client.display_name = profile.get("displayName")
+                garmin_client.client.full_name = profile.get("fullName")
+                garmin_client.client.unit_system = profile.get("measurementSystem")
+                logger.info(f"✓ Profile loaded: {garmin_client.client.display_name}")
+                
+                garmin_client._authenticated = True
+                
+            except Exception as garth_error:
+                error_str = str(garth_error)
+                logger.error(f"Garth login error: {error_str}")
+                
+                # Check if MFA is required
+                if "MFA" in error_str or "verification" in error_str.lower():
+                    logger.info("MFA/verification required")
+                    
+                    if not sys.stdin.isatty():
+                        logger.error("MFA required but running in non-interactive environment.")
+                        print("\n❌ MFA code is required but cannot prompt in non-interactive mode")
+                        print("Please run this script locally first to authenticate with MFA")
+                        sys.exit(1)
+                    
+                    # Prompt for MFA code
+                    mfa_code = input("\nEnter MFA code: ").strip()
+                    
+                    try:
+                        # Resume login with MFA code
+                        from garth.sso import resume_login
+                        oauth1, oauth2 = resume_login(garth.client, mfa_code)
+                        
+                        # Update garth client with tokens
+                        garth.client.oauth1_token = oauth1
+                        garth.client.oauth2_token = oauth2
+                        
+                        # Save tokens
+                        garth.save(str(token_dir))
+                        logger.info("✓ MFA successful and tokens saved!")
+                        
+                        # Create Garmin client
+                        garmin_client = GarminClient(email, password)
+                        garmin_client.client.garth = garth.client
+                        
+                        # Load profile information
+                        profile = garth.client.profile
+                        garmin_client.client.display_name = profile.get("displayName")
+                        garmin_client.client.full_name = profile.get("fullName")
+                        garmin_client.client.unit_system = profile.get("measurementSystem")
+                        logger.info(f"✓ Profile loaded: {garmin_client.client.display_name}")
+                        
+                        garmin_client._authenticated = True
+                        
+                    except Exception as mfa_error:
+                        logger.error(f"MFA submission failed: {mfa_error}")
+                        print(f"\n❌ MFA failed: {mfa_error}")
+                        sys.exit(1)
+                else:
+                    # Not an MFA error, re-raise
+                    raise
+                    
+        except Exception as e:
+            logger.error(f"Authentication failed: {type(e).__name__}: {str(e)}", exc_info=True)
+            print(f"\n❌ Authentication failed: {str(e)}")
+            print("\nTroubleshooting steps:")
+            print("1. Verify credentials at https://connect.garmin.com")
+            print("2. If you have MFA enabled, you'll need to enter the code")
+            print("3. Wait 10-15 minutes if you've tried multiple times (rate limiting)")
+            print("4. Try disabling MFA temporarily on Garmin to test")
+            sys.exit(1)
+    
+    if not garmin_client or not garmin_client._authenticated:
+        logger.error("Failed to create authenticated Garmin client")
         sys.exit(1)
 
     logger.info(f"Fetching metrics from {start_date.isoformat()} to {end_date.isoformat()}...")
