@@ -288,19 +288,23 @@ def main():
     else:
         logger.warning(".env file not found. Please ensure it's in the root directory.")
     
-    try:
-        # Check if any CLI arguments were provided
-        if len(sys.argv) > 1:
-            # CLI mode: use typer to parse arguments
+    # Check if any CLI arguments were provided
+    if len(sys.argv) > 1:
+        # CLI mode: use typer to parse arguments
+        try:
             app()
-        else:
-            # Interactive mode: run the interactive session
+        except KeyboardInterrupt:
+            print("\nOperation cancelled by user.")
+            sys.exit(0)
+    else:
+        # Interactive mode: run the interactive session
+        try:
             print("\nWelcome to GarminGo!")
             print("Let's help you make data-driven health and longevity decisions by grabbing your Garmin data.")
             asyncio.run(run_interactive_sync())
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user.")
-        sys.exit(0)
+        except KeyboardInterrupt:
+            print("\nOperation cancelled by user.")
+            sys.exit(0)
 
 if __name__ == "__main__":
     main()
