@@ -33,4 +33,4 @@ jobs:
           END_DATE=$(date '+%Y-%m-%d')
           
           # This runs the CLI command in your main.py
-          python main.py cli-sync --start-date "$START_DATE" --end-date "$END_DATE" --profile "USER1" --output-type "sheets"
+          python src/main.py cli-sync --start-date "$START_DATE" --end-date "$END_DATE" --profile "USER1" --output-type "sheets"
