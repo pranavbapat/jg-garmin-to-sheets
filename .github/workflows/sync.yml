@@ -2,16 +2,14 @@ name: Garmin to GSheets Sync
 
 on:
   schedule:
-    # Runs at 10:00 UTC (2:00 AM PST) every day
-    - cron: '0 10 * * *'
-  workflow_dispatch: # Allows you to run it manually for testing
+    - cron: '0 10 * * *' # Runs every day at 2AM PST
+  workflow_dispatch:      # Allows you to click "Run" manually
 
 jobs:
-  build:
+  run-sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -20,13 +18,19 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install gspread oauth2client garminconnect
+          pip install typer gspread oauth2client garminconnect python-dotenv
 
-      - name: Run Sync Script
+      - name: Execute Garmin Sync
         env:
-          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
-          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
-          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python sync.py
+          # This maps your Secrets to the "USER1" profile the script expects
+          USER1_GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          USER1_GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          USER1_SHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          USER1_SHEET_NAME: "Garmin_Data"
+        run: |
+          # This calculates "yesterday" and "today" for the script
+          START_DATE=$(date -d "yesterday" '+%Y-%m-%d')
+          END_DATE=$(date '+%Y-%m-%d')
+          
+          # This runs the CLI command in your main.py
+          python main.py cli-sync --start-date "$START_DATE" --end-date "$END_DATE" --profile "USER1" --output-type "sheets"
