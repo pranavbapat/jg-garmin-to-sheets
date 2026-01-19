@@ -2,14 +2,16 @@ name: Garmin to GSheets Sync
 
 on:
   schedule:
-    - cron: '0 10 * * *' # Runs every day at 2AM PST
-  workflow_dispatch:      # Allows you to click "Run" manually
+    # Runs at 10:00 UTC (2:00 AM PST) every day
+    - cron: '0 10 * * *'
+  workflow_dispatch: # Allows you to run it manually for testing
 
 jobs:
   run-sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -18,20 +20,31 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install typer gspread oauth2client garminconnect python-dotenv
+          python -m pip install --upgrade pip
+          pip install typer gspread oauth2client garminconnect python-dotenv \
+          google-api-python-client google-auth-oauthlib google-auth-httplib2
+
+      - name: Create Credentials Directory
+        run: mkdir -p credentials
+
+      - name: Write Google Credentials File
+        # This takes your secret JSON and puts it where main.py expects it
+        run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > credentials/client_secret.json
 
       - name: Execute Garmin Sync
         env:
-          # This maps your Secrets to the "USER1" profile the script expects
+          # Mapping GitHub Secrets to the USER1 profile your script expects
           USER1_GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           USER1_GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           USER1_SHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           USER1_SHEET_NAME: "Garmin_Data"
         run: |
-          # This calculates "yesterday" and "today" for the script
+          # Calculate dates for the CLI
           START_DATE=$(date -d "yesterday" '+%Y-%m-%d')
           END_DATE=$(date '+%Y-%m-%d')
           
-          # This runs the CLI command in your main.py
+          # Set PYTHONPATH so 'from src.x import y' works correctly
           export PYTHONPATH=$PYTHONPATH:.
+          
+          # Run the specific cli-sync command in your main.py
           python src/main.py cli-sync --start-date "$START_DATE" --end-date "$END_DATE" --profile "USER1" --output-type "sheets"
