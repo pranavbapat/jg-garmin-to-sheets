@@ -47,4 +47,4 @@ jobs:
           export PYTHONPATH=$PYTHONPATH:.
           
           # Run the specific cli-sync command in your main.py
-          python src/main.py --start-date "$START_DATE" --end-date "$END_DATE" --profile "USER1" --output-type "sheets"
+          python src/main.py cli-sync --start-date "$START_DATE" --end-date "$END_DATE" --profile "USER1" --output-type "sheets"
