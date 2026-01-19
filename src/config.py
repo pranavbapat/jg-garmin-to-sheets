@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-# 1. The Dataclass - Focused strictly on Bio-metrics and Running
+# 1. The Dataclass - Bio-metrics and Running only
+# Note: We still include fields that garmin_client.py passes, but set them to None
 @dataclass
 class GarminMetrics:
     date: date
@@ -25,8 +26,19 @@ class GarminMetrics:
     cardio_activity_count: Optional[int] = None
     cardio_duration: Optional[float] = None
     steps: Optional[int] = None
+    
+    # Fields that garmin_client passes but we don't use - accept them to avoid errors
+    weight: Optional[float] = None
+    body_fat: Optional[float] = None
+    blood_pressure_systolic: Optional[int] = None
+    blood_pressure_diastolic: Optional[int] = None
+    vo2max_cycling: Optional[float] = None
+    cycling_activity_count: Optional[int] = None
+    cycling_distance: Optional[float] = None
+    tennis_activity_count: Optional[int] = None
+    tennis_activity_duration: Optional[float] = None
 
-# 2. Final Headers for your "Garmin_Data" Sheet
+# 2. Headers for your "Garmin_Data" Sheet - Only what you want to see
 HEADERS = [
     "Day/Date", "Sleep Score", "Sleep Length", "HRV (ms)", "HRV Status", 
     "Resting Heart Rate", "Average Stress", "Active Calories", "Resting Calories", 
@@ -36,7 +48,7 @@ HEADERS = [
     "Cardio Duration", "Steps"
 ]
 
-# 3. Final Attribute Mapping
+# 3. Attribute Mapping - Only the metrics you want displayed
 HEADER_TO_ATTRIBUTE_MAP = {
     "Day/Date": "date",
     "Sleep Score": "sleep_score",
