@@ -47,8 +47,8 @@ jobs:
           # Set PYTHONPATH so 'from src.x import y' works correctly
           export PYTHONPATH=$PYTHONPATH:.
           
-          # Run the specific cli-sync command in your main.py
-          python src/main.py cli-sync \
+          # Run the CLI sync command
+          python -m src.main cli-sync \
             --start-date "$START_DATE" \
             --end-date "$END_DATE" \
             --profile "USER1" \
