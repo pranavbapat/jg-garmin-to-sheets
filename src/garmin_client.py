@@ -64,13 +64,16 @@ class GarminClient:
         # =========================================================================
 
         # 1. Process HRV
-        overnight_hrv = hrv_payload.get('hrvSummary', {}).get('lastNightAvg') if isinstance(hrv_payload, dict) else None
-        hrv_status = hrv_payload.get('hrvSummary', {}).get('status') if isinstance(hrv_payload, dict) else None
+        overnight_hrv = None
+        hrv_status = None
+        if isinstance(hrv_payload, dict):
+            summary_hrv = hrv_payload.get('hrvSummary', {})
+            overnight_hrv = summary_hrv.get('lastNightAvg')
+            hrv_status = summary_hrv.get('status')
 
         # 2. Process Recovery & Readiness
         recovery_h = None
         if isinstance(training_status, dict):
-            # We indent this block correctly now
             ts_data = training_status.get('mostRecentTrainingStatus', {})
             rec_min = ts_data.get('recoveryTime', 0) if ts_data else 0
             if rec_min: 
@@ -92,31 +95,4 @@ class GarminClient:
                     run_count += 1
                     run_dist += a.get('distance', 0) / 1000
 
-        # 5. Process Sleep
-        s_score = None
-        s_len = None
-        if isinstance(sleep_data, dict):
-            dto = sleep_data.get('dailySleepDTO', {})
-            s_score = dto.get('sleepScores', {}).get('overall', {}).get('value')
-            s_sec = dto.get('sleepTimeSeconds', 0)
-            if s_sec: 
-                s_len = s_sec / 3600
-
-        # 6. Extract Status Phrase
-        status_phrase = None
-        if isinstance(training_status, dict):
-            ts_data = training_status.get('mostRecentTrainingStatus', {})
-            status_phrase = ts_data.get('trainingStatusFeedbackPhrase') if ts_data else None
-
-        return GarminMetrics(
-            date=target_date,
-            sleep_score=s_score,
-            sleep_length=s_len,
-            overnight_hrv=overnight_hrv,
-            hrv_status=hrv_status,
-            body_battery_high=bb_high,
-            body_battery_low=bb_low,
-            recovery_time=recovery_h,
-            training_readiness=t_readiness,
-            resting_heart_rate=summary.get('restingHeartRate') if isinstance(summary, dict) else None,
-            average_stress=summary.get('averageStressLevel') if isinstance(summary, dict) else None,
+        #
