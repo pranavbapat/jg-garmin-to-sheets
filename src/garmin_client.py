@@ -7,7 +7,7 @@ from .config import GarminMetrics, HEADERS, HEADER_TO_ATTRIBUTE_MAP, TARGET_SHEE
 
 logger = logging.getLogger(__name__)
 
-class SheetsClient:
+class GarminClient:
     def __init__(self, spreadsheet_id: str, credentials_path: str):
         self.creds = service_account.Credentials.from_service_account_file(credentials_path, scopes=['https://www.googleapis.com/auth/spreadsheets'])
         self.service = build('sheets', 'v4', credentials=self.creds)
