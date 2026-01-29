@@ -69,4 +69,4 @@ HEADER_TO_ATTRIBUTE_MAP = {
 }
 
 SHEET_DATE_FORMAT = "%A %B %-d,%Y" 
-TARGET_SHEET_NAME = "Garmin Data"
+TARGET_SHEET_NAME = "Garmin_Data"
