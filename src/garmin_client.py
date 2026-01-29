@@ -1,98 +1,84 @@
-from datetime import date
-from typing import Dict, Any, Optional
-import asyncio
 import logging
-import json  # Needed for the raw data dump
-import garminconnect
-import garth
-from .config import GarminMetrics
+from datetime import date
+from typing import List, Optional
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from .config import GarminMetrics, HEADERS, HEADER_TO_ATTRIBUTE_MAP, TARGET_SHEET_NAME, SHEET_DATE_FORMAT
 
 logger = logging.getLogger(__name__)
 
-class GarminClient:
-    def __init__(self, email: str, password: str):
-        self.client = garminconnect.Garmin(email, password)
-        self._authenticated = False
+class SheetsClient:
+    def __init__(self, spreadsheet_id: str, credentials_path: str):
+        self.spreadsheet_id = spreadsheet_id
+        self.creds = service_account.Credentials.from_service_account_file(
+            credentials_path, 
+            scopes=['https://www.googleapis.com/auth/spreadsheets']
+        )
+        self.service = build('sheets', 'v4', credentials=self.creds)
+        logger.info(f"Initialized Google Sheets client for ID: {spreadsheet_id}")
 
-    async def authenticate(self):
+    def update_metrics(self, metrics_list: List[Optional[GarminMetrics]]):
+        # Filter out any None values if Garmin failed to return data for a day
+        valid_metrics = [m for m in metrics_list if m is not None]
+        
+        if not valid_metrics:
+            logger.warning("No valid metrics to write to Google Sheets.")
+            return
+
+        sheet = self.service.spreadsheets()
+        
+        # 1. Ensure the tab exists
         try:
-            await asyncio.get_event_loop().run_in_executor(None, self.client.login)
-            self._authenticated = True
-            logger.info("Successfully authenticated with Garmin Connect.")
+            sheet_metadata = sheet.get(spreadsheetId=self.spreadsheet_id).execute()
+            sheets = sheet_metadata.get('sheets', '')
+            exists = any(s.get('properties', {}).get('title') == TARGET_SHEET_NAME for s in sheets)
+            
+            if not exists:
+                batch_update_request = {
+                    'requests': [{'addSheet': {'properties': {'title': TARGET_SHEET_NAME}}}]
+                }
+                sheet.batchUpdate(spreadsheetId=self.spreadsheet_id, body=batch_update_request).execute()
+                logger.info(f"Created sheet: {TARGET_SHEET_NAME}")
         except Exception as e:
-            logger.error(f"Authentication failed: {e}")
-            raise
+            logger.error(f"Error checking/creating sheet: {e}")
+            return
 
-    async def get_metrics(self, target_date: date) -> GarminMetrics:
-        if not self._authenticated:
-            await self.authenticate()
+        # 2. Prepare Data Rows
+        rows = []
+        for metric in valid_metrics:
+            row = []
+            for header in HEADERS:
+                attr = HEADER_TO_ATTRIBUTE_MAP.get(header)
+                val = getattr(metric, attr) if attr else ""
+                
+                # Format Date
+                if header == "Day/Date" and isinstance(val, date):
+                    row.append(val.strftime(SHEET_DATE_FORMAT))
+                else:
+                    row.append(val if val is not None else "")
+            rows.append(row)
 
-        logger.info(f"--- Starting data fetch for {target_date.isoformat()} ---")
-
-        # Define data fetching tasks
-        tasks = [
-            asyncio.get_event_loop().run_in_executor(None, self.client.get_stats_and_body, target_date.isoformat()),
-            asyncio.get_event_loop().run_in_executor(None, self.client.get_sleep_data, target_date.isoformat()),
-            asyncio.get_event_loop().run_in_executor(None, self.client.get_activities_by_date, target_date.isoformat(), target_date.isoformat()),
-            asyncio.get_event_loop().run_in_executor(None, self.client.get_user_summary, target_date.isoformat()),
-            asyncio.get_event_loop().run_in_executor(None, self.client.get_training_status, target_date.isoformat()),
-            asyncio.get_event_loop().run_in_executor(None, self.client.get_hrv_data, target_date.isoformat()),
-            asyncio.get_event_loop().run_in_executor(None, self.client.get_training_readiness, target_date.isoformat())
-        ]
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        stats, sleep_data, activities, summary, training_status, hrv_payload, readiness_data = results
-
-        # =========================================================================
-        # GITHUB LOG DUMP SECTION
-        # =========================================================================
-        print(f"\n{'='*30} RAW DATA DUMP FOR {target_date} {'='*30}")
+        # 3. Append Data
+        body = {'values': rows}
+        range_name = f"{TARGET_SHEET_NAME}!A1"
         
-        print("\n[DEBUG] RAW STATS (Body Battery/Weight):")
-        print(json.dumps(stats, indent=2) if isinstance(stats, dict) else f"Data: {stats}")
+        try:
+            # Check if headers exist, if not, add them
+            result = sheet.values().get(spreadsheetId=self.spreadsheet_id, range=f"{TARGET_SHEET_NAME}!A1:A1").execute()
+            if not result.get('values'):
+                sheet.values().update(
+                    spreadsheetId=self.spreadsheet_id, 
+                    range=f"{TARGET_SHEET_NAME}!A1", 
+                    valueInputOption="RAW", 
+                    body={'values': [HEADERS]}
+                ).execute()
 
-        print("\n[DEBUG] RAW USER SUMMARY (Calories/Steps/RHR):")
-        print(json.dumps(summary, indent=2) if isinstance(summary, dict) else f"Data: {summary}")
-
-        print("\n[DEBUG] RAW TRAINING STATUS (Recovery):")
-        print(json.dumps(training_status, indent=2) if isinstance(training_status, dict) else f"Data: {training_status}")
-
-        print("\n[DEBUG] RAW TRAINING READINESS:")
-        print(json.dumps(readiness_data, indent=2) if isinstance(readiness_data, dict) else f"Data: {readiness_data}")
-        
-        print(f"{'='*80}\n")
-        # =========================================================================
-
-        # 1. Process HRV
-        overnight_hrv = None
-        hrv_status = None
-        if isinstance(hrv_payload, dict):
-            summary_hrv = hrv_payload.get('hrvSummary', {})
-            overnight_hrv = summary_hrv.get('lastNightAvg')
-            hrv_status = summary_hrv.get('status')
-
-        # 2. Process Recovery & Readiness
-        recovery_h = None
-        if isinstance(training_status, dict):
-            ts_data = training_status.get('mostRecentTrainingStatus', {})
-            rec_min = ts_data.get('recoveryTime', 0) if ts_data else 0
-            if rec_min: 
-                recovery_h = round(rec_min / 60)
-        
-        t_readiness = readiness_data.get('score') if isinstance(readiness_data, dict) else None
-
-        # 3. Process Body Battery
-        bb_high = stats.get('bodyBatteryHighestValue') if isinstance(stats, dict) else None
-        bb_low = stats.get('bodyBatteryLowestValue') if isinstance(stats, dict) else None
-
-        # 4. Process Activities
-        run_dist = 0
-        run_count = 0
-        if isinstance(activities, list):
-            for a in activities:
-                type_key = a.get('activityType', {}).get('typeKey', '').lower()
-                if 'run' in type_key:
-                    run_count += 1
-                    run_dist += a.get('distance', 0) / 1000
-
-        #
+            sheet.values().append(
+                spreadsheetId=self.spreadsheet_id,
+                range=f"{TARGET_SHEET_NAME}!A2",
+                valueInputOption="USER_ENTERED",
+                body=body
+            ).execute()
+            logger.info(f"Successfully appended {len(rows)} rows to {TARGET_SHEET_NAME}.")
+        except Exception as e:
+            logger.error(f"Failed to update sheet: {e}")
