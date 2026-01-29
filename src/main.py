@@ -10,7 +10,7 @@ from dotenv import load_dotenv, find_dotenv
 from src.garmin_client import GarminClient
 from src.sheets_client import GoogleSheetsClient
 
-# Logging config matches your style
+# Logging config
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -27,53 +27,42 @@ async def main():
     sheet_id = os.getenv(f"{profile_name}_SHEET_ID")
     sheet_name = os.getenv(f"{profile_name}_SHEET_NAME", "Raw Data")
     
-    if not email or not password:
-        logger.error(f"Credentials not found for {profile_name}")
-        return
-
-    # Setup garth token directory (Same logic as your original)
+    # Setup garth token directory
     token_dir = Path(f"./credentials/garmin_tokens_{profile_name}")
-    token_dir.mkdir(parents=True, exist_ok=True)
     os.environ["GARTH_HOME"] = str(token_dir)
 
-    # Authentication Flow
+    # 1. Authenticate / Resume
     garmin_client = None
     try:
-        logger.info(f"Attempting to resume Garmin session from {token_dir}")
+        logger.info(f"Resuming Garmin session from {token_dir}")
         garth.resume(str(token_dir))
         garmin_client = GarminClient(email, password)
         garmin_client.client.garth = garth.client
         garmin_client._authenticated = True
-        logger.info("Successfully resumed session!")
-    except Exception as resume_error:
-        logger.info(f"Could not resume: {resume_error}. Starting fresh login...")
-        try:
-            garth.login(email, password)
-            garth.save(str(token_dir))
-            garmin_client = GarminClient(email, password)
-            garmin_client.client.garth = garth.client
-            garmin_client._authenticated = True
-        except Exception as e:
-            logger.error(f"Authentication failed: {e}")
-            return
+    except Exception as e:
+        logger.error(f"Could not resume: {e}. Run a fresh login if tokens expired.")
+        return
 
-    # Date Range: Yesterday and Today
+    # 2. Backfill Range: Jan 16, 2026 to Today
+    start_date = date(2026, 1, 16)
     end_date = date.today()
-    start_date = end_date - timedelta(days=1)
     
-    logger.info(f"Syncing {start_date} to {end_date}")
+    logger.info(f"🚀 STARTING BACKFILL: {start_date} to {end_date}")
     
     metrics_to_write = []
     current_date = start_date
     while current_date <= end_date:
         try:
+            logger.info(f"Fetching {current_date.isoformat()}...")
             daily_metrics = await garmin_client.get_metrics(current_date)
             metrics_to_write.append(daily_metrics)
+            # 1-second pause to be kind to the API
+            await asyncio.sleep(1) 
         except Exception as e:
             logger.error(f"Failed to fetch {current_date}: {e}")
         current_date += timedelta(days=1)
 
-    # Write to Google Sheets
+    # 3. Push all data to Google Sheets
     if metrics_to_write:
         try:
             sheets_client = GoogleSheetsClient(
@@ -82,7 +71,7 @@ async def main():
                 sheet_name=sheet_name
             )
             sheets_client.update_metrics(metrics_to_write)
-            logger.info("✅ Google Sheets sync completed!")
+            logger.info(f"✅ Backfill successful! {len(metrics_to_write)} days synced.")
         except Exception as e:
             logger.error(f"Sheets update failed: {e}")
 
