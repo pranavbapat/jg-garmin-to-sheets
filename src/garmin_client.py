@@ -1,43 +1,43 @@
+import os
+import asyncio
+import garth
+import garminconnect
 import logging
-from datetime import date
-from typing import List, Optional
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from .config import GarminMetrics, HEADERS, HEADER_TO_ATTRIBUTE_MAP, TARGET_SHEET_NAME, SHEET_DATE_FORMAT
+from .config import GarminMetrics
 
 logger = logging.getLogger(__name__)
 
 class GarminClient:
-    def __init__(self, spreadsheet_id: str, credentials_path: str):
-        self.creds = service_account.Credentials.from_service_account_file(credentials_path, scopes=['https://www.googleapis.com/auth/spreadsheets'])
-        self.service = build('sheets', 'v4', credentials=self.creds)
-        self.spreadsheet_id = spreadsheet_id
+    def __init__(self):
+        self.client = None
+        self._authenticated = False
 
-    def update_metrics(self, metrics_list: List[Optional[GarminMetrics]]):
-        valid_data = [m for m in metrics_list if m is not None]
-        if not valid_data:
-            return
+    async def authenticate(self):
+        """Uses OAuth secrets to resume a session without MFA."""
+        try:
+            # 1. Grab tokens from your GitHub Secrets
+            oauth1 = os.getenv("GARMIN_OAUTH1_TOKEN")
+            oauth2 = os.getenv("GARMIN_OAUTH2_TOKEN")
 
-        sheet = self.service.spreadsheets()
+            if not oauth1 or not oauth2:
+                raise ValueError("Missing OAuth tokens in GitHub Secrets!")
+
+            # 2. Inject tokens into Garth
+            garth.client.oauth1_token = oauth1
+            garth.client.oauth2_token = oauth2
+            
+            # 3. Initialize the Garmin Connect client using the resumed Garth session
+            self.client = garminconnect.Garmin()
+            self.client.garth = garth.client
+            
+            self._authenticated = True
+            logger.info("Successfully resumed Garmin session using OAuth tokens.")
+        except Exception as e:
+            logger.error(f"Failed to resume session: {e}")
+            raise
+
+    async def get_metrics(self, target_date):
+        if not self._authenticated:
+            await self.authenticate()
         
-        # Prepare Rows
-        rows = []
-        for m in valid_data:
-            row = []
-            for header in HEADERS:
-                attr = HEADER_TO_ATTRIBUTE_MAP.get(header)
-                val = getattr(m, attr) if attr else ""
-                if header == "Date" and isinstance(val, date):
-                    row.append(val.strftime(SHEET_DATE_FORMAT))
-                else:
-                    row.append(val if val is not None else "")
-            rows.append(row)
-
-        # Append to Sheet (Google API handles the space in TARGET_SHEET_NAME automatically)
-        sheet.values().append(
-            spreadsheetId=self.spreadsheet_id,
-            range=f"'{TARGET_SHEET_NAME}'!A2",
-            valueInputOption="USER_ENTERED",
-            body={'values': rows}
-        ).execute()
-        logger.info(f"Appended metrics to '{TARGET_SHEET_NAME}'")
+        # ... (Rest of the get_metrics data extraction code stays the same) ...
