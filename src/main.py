@@ -1,51 +1,93 @@
 import os
+import sys
 import asyncio
 import logging
 import garth
 from datetime import date, timedelta
-from src.garmin_client import GarminClient
-from src.sheets_client import SheetsClient
+from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
 
-# Simplified logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+from src.garmin_client import GarminClient
+from src.sheets_client import GoogleSheetsClient
+
+# Logging config matches your style
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-async def sync():
-    # 1. Load Credentials (USER1 prefix as per your env setup)
-    email = os.getenv("USER1_GARMIN_EMAIL")
-    password = os.getenv("USER1_GARMIN_PASSWORD")
-    sheet_id = os.getenv("USER1_SHEET_ID")
-    token_dir = "./credentials/garmin_tokens_USER1"
+async def main():
+    # Load .env variables
+    env_file_path = find_dotenv(usecwd=True)
+    if env_file_path:
+        load_dotenv(dotenv_path=env_file_path)
     
-    # 2. Resume Garmin Session
+    # Target Profile: USER1
+    profile_name = "USER1"
+    email = os.getenv(f"{profile_name}_GARMIN_EMAIL")
+    password = os.getenv(f"{profile_name}_GARMIN_PASSWORD")
+    sheet_id = os.getenv(f"{profile_name}_SHEET_ID")
+    sheet_name = os.getenv(f"{profile_name}_SHEET_NAME", "Raw Data")
+    
+    if not email or not password:
+        logger.error(f"Credentials not found for {profile_name}")
+        return
+
+    # Setup garth token directory (Same logic as your original)
+    token_dir = Path(f"./credentials/garmin_tokens_{profile_name}")
+    token_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["GARTH_HOME"] = str(token_dir)
+
+    # Authentication Flow
+    garmin_client = None
     try:
-        garth.resume(token_dir)
+        logger.info(f"Attempting to resume Garmin session from {token_dir}")
+        garth.resume(str(token_dir))
         garmin_client = GarminClient(email, password)
         garmin_client.client.garth = garth.client
         garmin_client._authenticated = True
-        logger.info("Garmin session resumed.")
-    except Exception as e:
-        logger.error(f"Auth failed: {e}. Run locally to refresh tokens.")
-        return
+        logger.info("Successfully resumed session!")
+    except Exception as resume_error:
+        logger.info(f"Could not resume: {resume_error}. Starting fresh login...")
+        try:
+            garth.login(email, password)
+            garth.save(str(token_dir))
+            garmin_client = GarminClient(email, password)
+            garmin_client.client.garth = garth.client
+            garmin_client._authenticated = True
+        except Exception as e:
+            logger.error(f"Authentication failed: {e}")
+            return
 
-    # 3. Target: Yesterday and Today (To ensure no gaps)
-    today = date.today()
-    target_dates = [today - timedelta(days=1), today]
+    # Date Range: Yesterday and Today
+    end_date = date.today()
+    start_date = end_date - timedelta(days=1)
+    
+    logger.info(f"Syncing {start_date} to {end_date}")
     
     metrics_to_write = []
-    for target_date in target_dates:
-        logger.info(f"Fetching {target_date}...")
+    current_date = start_date
+    while current_date <= end_date:
         try:
-            day_data = await garmin_client.get_metrics(target_date)
-            metrics_to_write.append(day_data)
+            daily_metrics = await garmin_client.get_metrics(current_date)
+            metrics_to_write.append(daily_metrics)
         except Exception as e:
-            logger.error(f"Error for {target_date}: {e}")
+            logger.error(f"Failed to fetch {current_date}: {e}")
+        current_date += timedelta(days=1)
 
-    # 4. Update Google Sheets
+    # Write to Google Sheets
     if metrics_to_write:
-        sheets = SheetsClient(sheet_id, "credentials/gsheet_credentials.json")
-        sheets.update_metrics(metrics_to_write)
-        logger.info(f"Successfully updated {len(metrics_to_write)} days.")
+        try:
+            sheets_client = GoogleSheetsClient(
+                credentials_path='credentials/client_secret.json',
+                spreadsheet_id=sheet_id,
+                sheet_name=sheet_name
+            )
+            sheets_client.update_metrics(metrics_to_write)
+            logger.info("✅ Google Sheets sync completed!")
+        except Exception as e:
+            logger.error(f"Sheets update failed: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(sync())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        sys.exit(0)
