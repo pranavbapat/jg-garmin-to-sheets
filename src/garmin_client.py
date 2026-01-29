@@ -2,7 +2,7 @@ from datetime import date
 from typing import Dict, Any, Optional
 import asyncio
 import logging
-import json  # Added for raw data dumping
+import json  # Needed for the raw data dump
 import garminconnect
 import garth
 from .config import GarminMetrics
@@ -45,21 +45,20 @@ class GarminClient:
 
         # =========================================================================
         # GITHUB LOG DUMP SECTION
-        # These prints will show up in your GitHub Actions 'Run sync' step logs
         # =========================================================================
         print(f"\n{'='*30} RAW DATA DUMP FOR {target_date} {'='*30}")
         
-        print("\n[DEBUG] RAW STATS & BODY (Weight, Body Battery, etc.):")
-        print(json.dumps(stats, indent=2) if isinstance(stats, dict) else f"Error/None: {stats}")
+        print("\n[DEBUG] RAW STATS (Body Battery/Weight):")
+        print(json.dumps(stats, indent=2) if isinstance(stats, dict) else f"Data: {stats}")
 
-        print("\n[DEBUG] RAW USER SUMMARY (Calories, Steps, RHR, Stress):")
-        print(json.dumps(summary, indent=2) if isinstance(summary, dict) else f"Error/None: {summary}")
+        print("\n[DEBUG] RAW USER SUMMARY (Calories/Steps/RHR):")
+        print(json.dumps(summary, indent=2) if isinstance(summary, dict) else f"Data: {summary}")
 
-        print("\n[DEBUG] RAW TRAINING STATUS (Recovery Time, VO2 Max):")
-        print(json.dumps(training_status, indent=2) if isinstance(training_status, dict) else f"Error/None: {training_status}")
+        print("\n[DEBUG] RAW TRAINING STATUS (Recovery):")
+        print(json.dumps(training_status, indent=2) if isinstance(training_status, dict) else f"Data: {training_status}")
 
         print("\n[DEBUG] RAW TRAINING READINESS:")
-        print(json.dumps(readiness_data, indent=2) if isinstance(readiness_data, dict) else f"Error/None: {readiness_data}")
+        print(json.dumps(readiness_data, indent=2) if isinstance(readiness_data, dict) else f"Data: {readiness_data}")
         
         print(f"{'='*80}\n")
         # =========================================================================
@@ -71,3 +70,53 @@ class GarminClient:
         # 2. Process Recovery & Readiness
         recovery_h = None
         if isinstance(training_status, dict):
+            # We indent this block correctly now
+            ts_data = training_status.get('mostRecentTrainingStatus', {})
+            rec_min = ts_data.get('recoveryTime', 0) if ts_data else 0
+            if rec_min: 
+                recovery_h = round(rec_min / 60)
+        
+        t_readiness = readiness_data.get('score') if isinstance(readiness_data, dict) else None
+
+        # 3. Process Body Battery
+        bb_high = stats.get('bodyBatteryHighestValue') if isinstance(stats, dict) else None
+        bb_low = stats.get('bodyBatteryLowestValue') if isinstance(stats, dict) else None
+
+        # 4. Process Activities
+        run_dist = 0
+        run_count = 0
+        if isinstance(activities, list):
+            for a in activities:
+                type_key = a.get('activityType', {}).get('typeKey', '').lower()
+                if 'run' in type_key:
+                    run_count += 1
+                    run_dist += a.get('distance', 0) / 1000
+
+        # 5. Process Sleep
+        s_score = None
+        s_len = None
+        if isinstance(sleep_data, dict):
+            dto = sleep_data.get('dailySleepDTO', {})
+            s_score = dto.get('sleepScores', {}).get('overall', {}).get('value')
+            s_sec = dto.get('sleepTimeSeconds', 0)
+            if s_sec: 
+                s_len = s_sec / 3600
+
+        # 6. Extract Status Phrase
+        status_phrase = None
+        if isinstance(training_status, dict):
+            ts_data = training_status.get('mostRecentTrainingStatus', {})
+            status_phrase = ts_data.get('trainingStatusFeedbackPhrase') if ts_data else None
+
+        return GarminMetrics(
+            date=target_date,
+            sleep_score=s_score,
+            sleep_length=s_len,
+            overnight_hrv=overnight_hrv,
+            hrv_status=hrv_status,
+            body_battery_high=bb_high,
+            body_battery_low=bb_low,
+            recovery_time=recovery_h,
+            training_readiness=t_readiness,
+            resting_heart_rate=summary.get('restingHeartRate') if isinstance(summary, dict) else None,
+            average_stress=summary.get('averageStressLevel') if isinstance(summary, dict) else None,
