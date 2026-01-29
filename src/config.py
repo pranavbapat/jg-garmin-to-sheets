@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-# 1. The Dataclass - Bio-metrics and Running only
-# Note: We still include fields that garmin_client.py passes, but set them to None
 @dataclass
 class GarminMetrics:
     date: date
@@ -13,6 +11,12 @@ class GarminMetrics:
     hrv_status: Optional[str] = None
     resting_heart_rate: Optional[int] = None
     average_stress: Optional[int] = None
+    # --- New Recovery Metrics ---
+    body_battery_high: Optional[int] = None
+    body_battery_low: Optional[int] = None
+    recovery_time: Optional[int] = None
+    training_readiness: Optional[int] = None
+    # ----------------------------
     active_calories: Optional[int] = None
     resting_calories: Optional[int] = None
     training_status: Optional[str] = None
@@ -21,13 +25,8 @@ class GarminMetrics:
     all_activity_count: Optional[int] = None
     running_activity_count: Optional[int] = None
     running_distance: Optional[float] = None
-    strength_activity_count: Optional[int] = None
-    strength_duration: Optional[float] = None
-    cardio_activity_count: Optional[int] = None
-    cardio_duration: Optional[float] = None
     steps: Optional[int] = None
-    
-    # Fields that garmin_client passes but we don't use - accept them to avoid errors
+    # Accepted but hidden fields
     weight: Optional[float] = None
     body_fat: Optional[float] = None
     blood_pressure_systolic: Optional[int] = None
@@ -35,43 +34,39 @@ class GarminMetrics:
     vo2max_cycling: Optional[float] = None
     cycling_activity_count: Optional[int] = None
     cycling_distance: Optional[float] = None
+    strength_activity_count: Optional[int] = None
+    strength_duration: Optional[float] = None
+    cardio_activity_count: Optional[int] = None
+    cardio_duration: Optional[float] = None
     tennis_activity_count: Optional[int] = None
     tennis_activity_duration: Optional[float] = None
 
-# 2. Headers for your "Garmin_Data" Sheet - Only what you want to see
 HEADERS = [
     "Day/Date", "Sleep Score", "Sleep Length", "HRV (ms)", "HRV Status", 
+    "Body Battery High", "Body Battery Low", "Recovery Time (h)", "Readiness",
     "Resting Heart Rate", "Average Stress", "Active Calories", "Resting Calories", 
-    "Training Status", "VO2 Max Running", "Intensity Minutes", 
-    "All Activity Count", "Running Activity Count", "Running Distance (km)", 
-    "Strength Activity Count", "Strength Duration", "Cardio Activity Count", 
-    "Cardio Duration", "Steps"
+    "Training Status", "VO2 Max", "Running Distance (km)", "Steps"
 ]
 
-# 3. Attribute Mapping - Only the metrics you want displayed
 HEADER_TO_ATTRIBUTE_MAP = {
     "Day/Date": "date",
     "Sleep Score": "sleep_score",
     "Sleep Length": "sleep_length",
     "HRV (ms)": "overnight_hrv",
     "HRV Status": "hrv_status",
+    "Body Battery High": "body_battery_high",
+    "Body Battery Low": "body_battery_low",
+    "Recovery Time (h)": "recovery_time",
+    "Readiness": "training_readiness",
     "Resting Heart Rate": "resting_heart_rate",
     "Average Stress": "average_stress",
     "Active Calories": "active_calories",
     "Resting Calories": "resting_calories",
     "Training Status": "training_status",
-    "VO2 Max Running": "vo2max_running",
-    "Intensity Minutes": "intensity_minutes",
-    "All Activity Count": "all_activity_count",
-    "Running Activity Count": "running_activity_count",
+    "VO2 Max": "vo2max_running",
     "Running Distance (km)": "running_distance",
-    "Strength Activity Count": "strength_activity_count",
-    "Strength Duration": "strength_duration",
-    "Cardio Activity Count": "cardio_activity_count",
-    "Cardio Duration": "cardio_duration",
     "Steps": "steps"
 }
 
-# 4. Sheet Settings
 SHEET_DATE_FORMAT = "%A %B %-d,%Y" 
-TARGET_SHEET_NAME = "Garmin_Data"
+TARGET_SHEET_NAME = "Garmin Data"
