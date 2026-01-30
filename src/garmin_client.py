@@ -43,8 +43,13 @@ class GarminClient:
         stats, sleep_data, activities, summary, training_status, hrv_payload, readiness_data = results
 
         # 1. Process HRV
-        overnight_hrv = hrv_payload.get('hrvSummary', {}).get('lastNightAvg') if isinstance(hrv_payload, dict) else None
-        hrv_status = hrv_payload.get('hrvSummary', {}).get('status') if isinstance(hrv_payload, dict) else None
+        overnight_hrv = None
+        hrv_status = None
+        if hrv_payload:
+            hrv_summary = hrv_payload.get('hrvSummary')
+            if hrv_summary:
+                overnight_hrv = hrv_summary.get('lastNightAvg')
+                hrv_status = hrv_summary.get('status')
 
         # 2. Process Readiness & Acute Load (Handles the list format from Forerunner 970 logs)
         t_readiness = None
@@ -65,16 +70,24 @@ class GarminClient:
         recovery_h = None
         if isinstance(training_status, dict):
             rec_min = training_status.get('most_recent_training_status', {}).get('recoveryTime', 0)
-            if not rec_min and isinstance(readiness_data, list):
+            if not rec_min and isinstance(readiness_data, list) and len(readiness_data) > 0:
                 rec_min = readiness_data[-1].get('recoveryTime', 0)
-            if rec_min: recovery_h = round(rec_min / 60, 1)
+            if rec_min: 
+                recovery_h = round(rec_min / 60, 1)
 
-        # 4. Process Body Battery & Respiration
-        bb_high = summary.get('bodyBatteryHighestValue') if isinstance(summary, dict) else None
-        bb_low = summary.get('bodyBatteryLowestValue') if isinstance(summary, dict) else None
-        resp_avg = summary.get('avgWakingRespirationValue') if isinstance(summary, dict) else None
+        # 4. Process Body Battery (from stats, not summary)
+        bb_high = None
+        bb_low = None
+        if stats:
+            bb_high = stats.get('bodyBatteryHighestValue')
+            bb_low = stats.get('bodyBatteryLowestValue')
 
-        # 5. Process Activities - Count all types separately
+        # 5. Process Respiration (from stats)
+        resp_avg = None
+        if stats:
+            resp_avg = stats.get('avgWakingRespirationValue')
+
+        # 6. Process Activities - Count all types separately
         run_dist = 0
         run_count = 0
         strength_count = 0
@@ -87,61 +100,98 @@ class GarminClient:
         tennis_dur = 0
         all_count = 0
         
-        if isinstance(activities, list):
+        if activities:
             all_count = len(activities)
-            for a in activities:
-                type_key = a.get('activityType', {}).get('typeKey', '').lower()
-                duration = a.get('duration', 0) / 60  # Convert to minutes
+            for activity in activities:
+                activity_type = activity.get('activityType', {})
+                type_key = activity_type.get('typeKey', '').lower()
+                parent_type_id = activity_type.get('parentTypeId')
+                duration = activity.get('duration', 0) / 60  # Convert seconds to minutes
                 
-                if 'run' in type_key and 'cycling' not in type_key:
-                    run_dist += a.get('distance', 0) / 1000
+                if 'run' in type_key or parent_type_id == 1:  # 1 is running
                     run_count += 1
-                elif 'strength' in type_key or 'training' in type_key:
+                    run_dist += activity.get('distance', 0) / 1000  # Convert to km
+                elif 'virtual_ride' in type_key or 'cycling' in type_key or parent_type_id == 2:  # 2 is cycling
+                    cycling_count += 1
+                    cycling_dist += activity.get('distance', 0) / 1000
+                elif 'strength' in type_key:
                     strength_count += 1
                     strength_dur += duration
-                elif 'cardio' in type_key or 'fitness' in type_key:
+                elif 'cardio' in type_key:
                     cardio_count += 1
                     cardio_dur += duration
-                elif 'cycling' in type_key:
-                    cycling_count += 1
-                    cycling_dist += a.get('distance', 0) / 1000
                 elif 'tennis' in type_key:
                     tennis_count += 1
                     tennis_dur += duration
 
-        # 6. Process Sleep
+        # 7. Process Sleep
         s_score = None
         s_length = None
-        if isinstance(sleep_data, dict):
-            s_score = sleep_data.get('dailySleepDTO', {}).get('sleepScores', {}).get('overall', {}).get('value')
-            sleep_seconds = sleep_data.get('dailySleepDTO', {}).get('sleepTimeSeconds', 0)
-            if sleep_seconds:
-                s_length = round(sleep_seconds / 3600, 2)  # Convert to hours
+        if sleep_data:
+            sleep_dto = sleep_data.get('dailySleepDTO', {})
+            if sleep_dto:
+                s_score = sleep_dto.get('sleepScores', {}).get('overall', {}).get('value')
+                sleep_time_seconds = sleep_dto.get('sleepTimeSeconds')
+                if sleep_time_seconds is not None and sleep_time_seconds > 0:
+                    s_length = round(sleep_time_seconds / 3600, 2)  # Convert to hours
 
-        # 7. Get Training Status text
+        # 8. Get summary metrics (THIS IS WHERE THE MISSING FIELDS COME FROM!)
+        active_cals = None
+        resting_cals = None
+        intensity_mins = None
+        resting_hr = None
+        avg_stress = None
+        steps = None
+        
+        if summary:
+            active_cals = summary.get('activeKilocalories')
+            resting_cals = summary.get('bmrKilocalories')
+            # Intensity minutes calculation from old code
+            moderate = summary.get('moderateIntensityMinutes', 0) or 0
+            vigorous = summary.get('vigorousIntensityMinutes', 0) or 0
+            intensity_mins = moderate + (2 * vigorous)
+            resting_hr = summary.get('restingHeartRate')
+            avg_stress = summary.get('averageStressLevel')
+            steps = summary.get('totalSteps')
+
+        # 9. Get VO2 Max values and training status
+        vo2_running = None
+        vo2_cycling = None
         train_status_text = None
-        if isinstance(training_status, dict):
-            train_status_text = training_status.get('trainingStatusKey')
+        
+        if training_status:
+            most_recent_vo2max = training_status.get('mostRecentVO2Max')
+            if most_recent_vo2max:
+                generic_vo2max = most_recent_vo2max.get('generic')
+                if generic_vo2max:
+                    vo2_running = generic_vo2max.get('vo2MaxValue')
+                
+                cycling_vo2max = most_recent_vo2max.get('cycling')
+                if cycling_vo2max:
+                    vo2_cycling = cycling_vo2max.get('vo2MaxValue')
 
-        # 8. Get VO2 Max
-        vo2 = None
-        if isinstance(training_status, dict):
-            vo2 = training_status.get('mostRecentVO2Max', {}).get('generic', {}).get('vo2MaxValue')
+            # Get training status phrase
+            most_recent_training_status = training_status.get('mostRecentTrainingStatus')
+            if most_recent_training_status:
+                latest_training_status_data = most_recent_training_status.get('latestTrainingStatusData')
+                if latest_training_status_data:
+                    # Get the first device's training status
+                    for device_data in latest_training_status_data.values():
+                        train_status_text = device_data.get('trainingStatusFeedbackPhrase')
+                        break
 
-        # 9. Get Intensity Minutes and other summary data
-        intensity_mins = summary.get('intensityMinutesGoal') if isinstance(summary, dict) else None
-        resting_hr = summary.get('restingHeartRate') if isinstance(summary, dict) else None
-        avg_stress = summary.get('averageStressLevel') if isinstance(summary, dict) else None
-        active_cals = summary.get('activeKilocalories') if isinstance(summary, dict) else None
-        bmr_cals = summary.get('bmrKilocalories') if isinstance(summary, dict) else None
-        steps = summary.get('totalSteps') if isinstance(summary, dict) else None
+        # 10. Get Body Stats from stats (weight in grams, convert to kg)
+        weight = None
+        body_fat = None
+        if stats:
+            weight_grams = stats.get('weight')
+            weight = weight_grams / 1000 if weight_grams else None
+            body_fat = stats.get('bodyFat')
 
-        # 10. Get Body Stats (may not be available)
-        weight = stats.get('weight') if isinstance(stats, dict) else None
-        body_fat = stats.get('bodyFat') if isinstance(stats, dict) else None
-
-        # 11. Get SpO2
-        spo2 = summary.get('avgSpo2Value') if isinstance(summary, dict) else None
+        # 11. Get SpO2 (from stats)
+        spo2 = None
+        if stats:
+            spo2 = stats.get('avgSpo2Value')
 
         return GarminMetrics(
             date=target_date,
@@ -170,8 +220,8 @@ class GarminClient:
             spo2_avg=spo2,
             # Calories & Activity
             active_calories=active_cals,
-            bmr_calories=bmr_cals,
-            resting_calories=bmr_cals,  # Alias (BMR is resting)
+            bmr_calories=resting_cals,
+            resting_calories=resting_cals,  # Alias (BMR is resting)
             steps=steps,
             intensity_minutes=intensity_mins,
             # Activities
@@ -185,12 +235,13 @@ class GarminClient:
             cardio_duration=round(cardio_dur, 1) if cardio_dur else None,
             # Training
             training_status=train_status_text,
-            vo2_max=vo2,
-            vo2max_running=vo2,  # Alias
+            vo2_max=vo2_running,
+            vo2max_running=vo2_running,  # Alias
             # Body Metrics
             weight=weight,
             body_fat=body_fat,
             # Cycling & Tennis
+            vo2max_cycling=vo2_cycling,
             cycling_activity_count=cycling_count,
             cycling_distance=round(cycling_dist, 2) if cycling_dist else None,
             tennis_activity_count=tennis_count,
