@@ -13,43 +13,53 @@ class GarminClient:
     def __init__(self, email: str, password: str):
         self.client = garminconnect.Garmin(email, password)
         self._authenticated = False
+        self._profile_loaded = False
 
     async def authenticate(self):
         try:
             await asyncio.get_event_loop().run_in_executor(None, self.client.login)
-            
-            # CRITICAL FIX: Ensure profile data is loaded after login
-            # This populates display_name, full_name, etc. which are needed for API calls
-            if hasattr(self.client, 'garth') and hasattr(self.client.garth, 'profile'):
-                try:
-                    profile_data = self.client.garth.profile
-                    if profile_data:
-                        self.client.display_name = profile_data.get("displayName")
-                        self.client.full_name = profile_data.get("fullName")
-                        self.client.unit_system = profile_data.get("measurementSystem")
-                        logger.info(f"✅ Profile loaded: {self.client.display_name}")
-                    else:
-                        logger.warning("Profile data is empty, attempting to fetch...")
-                        # Force profile fetch
-                        await asyncio.get_event_loop().run_in_executor(None, lambda: self.client.garth.profile)
-                except Exception as profile_error:
-                    logger.error(f"Failed to load profile: {profile_error}")
-                    # Try alternative method
-                    try:
-                        await asyncio.get_event_loop().run_in_executor(None, self.client.get_full_name)
-                        logger.info("Profile loaded via get_full_name()")
-                    except:
-                        pass
-            
             self._authenticated = True
             logger.info("✅ Garmin Auth Successful")
         except Exception as e:
             logger.error(f"❌ Auth failed: {e}")
             raise
 
+    async def _ensure_profile_loaded(self):
+        """Ensure user profile is loaded - critical for API calls to work"""
+        if self._profile_loaded:
+            return
+            
+        try:
+            # Check if profile data exists
+            if hasattr(self.client, 'garth') and self.client.garth:
+                # Try to access profile - this triggers a fetch if not cached
+                profile_data = self.client.garth.profile
+                
+                if profile_data:
+                    self.client.display_name = profile_data.get("displayName")
+                    self.client.full_name = profile_data.get("fullName") 
+                    self.client.unit_system = profile_data.get("measurementSystem")
+                    logger.info(f"✅ Profile loaded: {self.client.display_name}")
+                    self._profile_loaded = True
+                    return
+                    
+            # Fallback: try to get full name which also loads profile
+            if not self._profile_loaded:
+                logger.info("Attempting to load profile via get_full_name()...")
+                await asyncio.get_event_loop().run_in_executor(None, self.client.get_full_name)
+                self._profile_loaded = True
+                logger.info("✅ Profile loaded via get_full_name()")
+                
+        except Exception as e:
+            logger.error(f"⚠️  Profile load failed: {e}")
+            # Don't raise - let the API calls fail with better error messages
+
     async def get_metrics(self, target_date: date) -> GarminMetrics:
         if not self._authenticated:
             await self.authenticate()
+        
+        # CRITICAL: Always ensure profile is loaded before making API calls
+        await self._ensure_profile_loaded()
 
         # Define data fetching tasks
         tasks = [
@@ -65,22 +75,11 @@ class GarminClient:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         stats, sleep_data, activities, summary, training_status, hrv_payload, readiness_data = results
 
-        # Check for errors in results
-        for i, (result, name) in enumerate(zip(results, ['stats', 'sleep_data', 'activities', 'summary', 'training_status', 'hrv_payload', 'readiness_data'])):
+        # Log errors
+        result_names = ['stats', 'sleep_data', 'activities', 'summary', 'training_status', 'hrv_payload', 'readiness_data']
+        for result, name in zip(results, result_names):
             if isinstance(result, Exception):
-                logger.error(f"Error fetching {name} for {target_date}: {result}")
-
-        # DEBUG LOGGING
-        logger.info(f"===== DEBUG FOR {target_date} =====")
-        logger.info(f"stats: {type(stats)}, summary: {type(summary)}")
-        
-        if isinstance(stats, dict):
-            logger.info(f"stats keys: {list(stats.keys())}")
-        if isinstance(summary, dict):
-            logger.info(f"summary keys: {list(summary.keys())}")
-        elif isinstance(summary, Exception):
-            logger.error(f"Summary API call failed: {summary}")
-        logger.info(f"=====================================")
+                logger.error(f"❌ Error fetching {name} for {target_date}: {result}")
 
         # 1. Process HRV
         overnight_hrv = None
@@ -115,7 +114,7 @@ class GarminClient:
             if rec_min: 
                 recovery_h = round(rec_min / 60, 1)
 
-        # 4. Process Body Battery (from stats)
+        # 4. Process Body Battery & Bio-markers (from stats)
         bb_high = None
         bb_low = None
         resp_avg = None
@@ -170,7 +169,7 @@ class GarminClient:
                 if sleep_time_seconds is not None and sleep_time_seconds > 0:
                     s_length = round(sleep_time_seconds / 3600, 2)  # Convert to hours
 
-        # 7. Get summary metrics - THE CRITICAL FIELDS
+        # 7. Get summary metrics (Steps, Calories, HR, Stress, Intensity)
         active_cals = None
         resting_cals = None
         intensity_mins = None
@@ -188,8 +187,7 @@ class GarminClient:
             avg_stress = summary.get('averageStressLevel')
             steps = summary.get('totalSteps')
         else:
-            logger.warning(f"Summary data unavailable for {target_date}, using fallback stats data if available")
-            # Fallback: try to get some values from stats if summary failed
+            # Fallback to stats if summary failed
             if stats and isinstance(stats, dict):
                 resting_hr = stats.get('restingHeartRate')
                 avg_stress = stats.get('averageStressLevel')
