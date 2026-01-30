@@ -123,10 +123,21 @@ class GarminClient:
         body_fat = None
         
         if stats and isinstance(stats, dict):
+            # DEBUG: Log all keys to find SpO2
+            logger.info(f"DEBUG: stats keys for {target_date}: {list(stats.keys())}")
+            
             bb_high = stats.get('bodyBatteryHighestValue')
             bb_low = stats.get('bodyBatteryLowestValue')
             resp_avg = stats.get('avgWakingRespirationValue')
-            spo2 = stats.get('avgSpo2Value')
+            
+            # Try multiple possible SpO2 field names
+            spo2 = (stats.get('avgSpo2Value') or 
+                   stats.get('averageSpo2') or 
+                   stats.get('avgOxygenSaturation') or
+                   stats.get('spo2'))
+            
+            logger.info(f"DEBUG: SpO2 value extracted: {spo2}")
+            
             weight_grams = stats.get('weight')
             weight = weight_grams / 1000 if weight_grams else None
             body_fat = stats.get('bodyFat')
