@@ -131,12 +131,17 @@ class GarminClient:
             resp_avg = stats.get('avgWakingRespirationValue')
             
             # Try multiple possible SpO2 field names
-            spo2 = (stats.get('avgSpo2Value') or 
-                   stats.get('averageSpo2') or 
+            logger.info(f"DEBUG: averageSpo2 raw value: {stats.get('averageSpo2')}")
+            logger.info(f"DEBUG: lowestSpo2 raw value: {stats.get('lowestSpo2')}")
+            logger.info(f"DEBUG: latestSpo2 raw value: {stats.get('latestSpo2')}")
+            
+            spo2 = (stats.get('averageSpo2') or 
+                   stats.get('latestSpo2') or
+                   stats.get('avgSpo2Value') or 
                    stats.get('avgOxygenSaturation') or
                    stats.get('spo2'))
             
-            logger.info(f"DEBUG: SpO2 value extracted: {spo2}")
+            logger.info(f"DEBUG: SpO2 final value extracted: {spo2}")
             
             weight_grams = stats.get('weight')
             weight = weight_grams / 1000 if weight_grams else None
