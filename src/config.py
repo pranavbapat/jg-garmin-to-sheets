@@ -59,7 +59,7 @@ class GarminMetrics:
     strength_sessions: Optional[int] = 0
     vo2_max: Optional[float] = None
     
-    # Extra fields (may not populate but accepted to avoid errors)
+    # Extra fields (accepted to avoid errors but not displayed)
     weight: Optional[float] = None
     body_fat: Optional[float] = None
     blood_pressure_systolic: Optional[int] = None
@@ -70,7 +70,7 @@ class GarminMetrics:
     tennis_activity_count: Optional[int] = None
     tennis_activity_duration: Optional[float] = None
 
-# Clean, organized headers for your new sheet
+# Clean headers - NO cycling or tennis
 HEADERS = [
     # Date
     "Date",
@@ -86,8 +86,8 @@ HEADERS = [
     "Steps", "Intensity Mins", "Active Cals", "Resting Cals",
     # Training (2 columns)
     "Training Status", "VO2 Max",
-    # Activities (7 columns)
-    "Total Activities", "Runs", "Run KM", "Strength", "Strength Mins", "Cardio", "Cardio Mins"
+    # Activities (5 columns) - NO cycling/tennis
+    "Total Activities", "Runs", "Run KM", "Strength", "Strength Mins"
 ]
 
 HEADER_TO_ATTRIBUTE_MAP = {
@@ -124,10 +124,8 @@ HEADER_TO_ATTRIBUTE_MAP = {
     "Runs": "running_activity_count",
     "Run KM": "running_distance",
     "Strength": "strength_activity_count",
-    "Strength Mins": "strength_duration",
-    "Cardio": "cardio_activity_count",
-    "Cardio Mins": "cardio_duration"
+    "Strength Mins": "strength_duration"
 }
 
 TARGET_SHEET_NAME = "Garmin Data"
-SHEET_DATE_FORMAT = "%Y-%m-%d"  # Using ISO format for consistency
+SHEET_DATE_FORMAT = "%Y-%m-%d"
