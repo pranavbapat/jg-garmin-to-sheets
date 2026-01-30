@@ -38,6 +38,15 @@ async def main():
         garth.resume(str(token_dir))
         garmin_client = GarminClient(email, password)
         garmin_client.client.garth = garth.client
+        
+        # CRITICAL FIX: Load profile data after resuming
+        if not garmin_client.client.display_name:
+            profile = garth.client.profile
+            garmin_client.client.display_name = profile.get("displayName")
+            garmin_client.client.full_name = profile.get("fullName")
+            garmin_client.client.unit_system = profile.get("measurementSystem")
+            logger.info(f"✅ Profile loaded: {garmin_client.client.display_name}")
+        
         garmin_client._authenticated = True
     except Exception as e:
         logger.error(f"Could not resume: {e}. Run a fresh login if tokens expired.")
