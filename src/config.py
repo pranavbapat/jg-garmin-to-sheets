@@ -72,54 +72,39 @@ class GarminMetrics:
 
 # Clean headers - NO cycling or tennis
 HEADERS = [
-    # Date
     "Date",
-    # Sleep (3 columns)
     "Sleep Score", "Sleep Hours", "Sleep Feedback",
-    # Heart & Recovery (6 columns)
-    "HRV", "HRV Status", "Resting HR", "Readiness", "Recovery (h)", "Acute Load",
-    # Body Battery & Stress (3 columns)
+    "HRV", "HRV Status", "Resting HR",
+    "Readiness", "Recovery (h)", "Acute Load",
     "BB High", "BB Low", "Avg Stress",
-    # Bio-markers (2 columns)
     "Respiration", "SpO2",
-    # Activity & Calories (4 columns)
     "Steps", "Intensity Mins", "Active Cals", "Resting Cals",
-    # Training (2 columns)
     "Training Status", "VO2 Max",
-    # Activities (5 columns) - NO cycling/tennis
     "Total Activities", "Runs", "Run KM", "Strength", "Strength Mins"
 ]
 
 HEADER_TO_ATTRIBUTE_MAP = {
-    # Date
     "Date": "date",
-    # Sleep
     "Sleep Score": "sleep_score",
     "Sleep Hours": "sleep_length",
     "Sleep Feedback": "sleep_feedback",
-    # Heart & Recovery
     "HRV": "overnight_hrv",
     "HRV Status": "hrv_status",
     "Resting HR": "resting_heart_rate",
     "Readiness": "training_readiness",
     "Recovery (h)": "recovery_time",
     "Acute Load": "acute_load",
-    # Body Battery & Stress
     "BB High": "body_battery_high",
     "BB Low": "body_battery_low",
     "Avg Stress": "average_stress",
-    # Bio-markers
     "Respiration": "respiration_avg",
     "SpO2": "spo2_avg",
-    # Activity & Calories
     "Steps": "steps",
     "Intensity Mins": "intensity_minutes",
     "Active Cals": "active_calories",
     "Resting Cals": "resting_calories",
-    # Training
     "Training Status": "training_status",
     "VO2 Max": "vo2max_running",
-    # Activities
     "Total Activities": "all_activity_count",
     "Runs": "running_activity_count",
     "Run KM": "running_distance",
