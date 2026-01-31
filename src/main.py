@@ -25,7 +25,7 @@ async def main():
     email = os.getenv(f"{profile_name}_GARMIN_EMAIL")
     password = os.getenv(f"{profile_name}_GARMIN_PASSWORD")
     sheet_id = os.getenv(f"{profile_name}_SHEET_ID")
-    sheet_name = os.getenv(f"{profile_name}_SHEET_NAME", "Raw Data")
+    sheet_name = os.getenv(f"{profile_name}_SHEET_NAME", "Garmin Data")
     
     # Setup garth token directory
     token_dir = Path(f"./credentials/garmin_tokens_{profile_name}")
@@ -36,42 +36,65 @@ async def main():
     try:
         logger.info(f"Resuming Garmin session from {token_dir}")
         garth.resume(str(token_dir))
+        logger.info("✅ Garth session resumed successfully")
+        
         garmin_client = GarminClient(email, password)
         garmin_client.client.garth = garth.client
         
-        # CRITICAL FIX: Load profile data after resuming
-        if not garmin_client.client.display_name:
+        # CRITICAL: Load profile data
+        logger.info("Loading user profile...")
+        try:
+            # Access profile which triggers fetch if needed
             profile = garth.client.profile
-            garmin_client.client.display_name = profile.get("displayName")
-            garmin_client.client.full_name = profile.get("fullName")
-            garmin_client.client.unit_system = profile.get("measurementSystem")
-            logger.info(f"✅ Profile loaded: {garmin_client.client.display_name}")
+            logger.info(f"Profile fetched: {profile}")
+            
+            if profile:
+                garmin_client.client.display_name = profile.get("displayName")
+                garmin_client.client.full_name = profile.get("fullName")
+                garmin_client.client.unit_system = profile.get("measurementSystem")
+                logger.info(f"✅ Profile loaded: display_name={garmin_client.client.display_name}")
+            else:
+                logger.error("❌ Profile is None - this will cause API failures!")
+                
+                # Try alternative method
+                logger.info("Attempting alternative profile load via get_full_name()...")
+                try:
+                    full_name = garmin_client.client.get_full_name()
+                    logger.info(f"✅ Profile loaded via get_full_name(): {full_name}")
+                except Exception as alt_error:
+                    logger.error(f"❌ Alternative profile load also failed: {alt_error}")
+                    raise Exception("Failed to load profile - API calls will fail")
+        except Exception as profile_error:
+            logger.error(f"❌ Profile loading failed: {profile_error}")
+            raise
         
         garmin_client._authenticated = True
+        logger.info("✅ Garmin client ready")
+        
     except Exception as e:
-        logger.error(f"Could not resume: {e}. Run a fresh login if tokens expired.")
+        logger.error(f"❌ Authentication/setup failed: {e}")
+        import traceback
+        traceback.print_exc()
         return
 
-    # 2. Backfill Range: Jan 16, 2026 to Today
-    start_date = date(2026, 1, 16)
-    end_date = date.today()
+    # 2. Fetch yesterday and today
+    today = date.today()
+    yesterday = today - timedelta(days=1)
     
-    logger.info(f"🚀 STARTING BACKFILL: {start_date} to {end_date}")
+    logger.info(f"🚀 Fetching data for: {yesterday} and {today}")
     
     metrics_to_write = []
-    current_date = start_date
-    while current_date <= end_date:
+    for target_date in [yesterday, today]:
         try:
-            logger.info(f"Fetching {current_date.isoformat()}...")
-            daily_metrics = await garmin_client.get_metrics(current_date)
+            logger.info(f"Fetching {target_date.isoformat()}...")
+            daily_metrics = await garmin_client.get_metrics(target_date)
             metrics_to_write.append(daily_metrics)
             # 1-second pause to be kind to the API
             await asyncio.sleep(1) 
         except Exception as e:
-            logger.error(f"Failed to fetch {current_date}: {e}")
-        current_date += timedelta(days=1)
+            logger.error(f"Failed to fetch {target_date}: {e}")
 
-    # 3. Push all data to Google Sheets
+    # 3. Push data to Google Sheets (with deduplication)
     if metrics_to_write:
         try:
             sheets_client = GoogleSheetsClient(
@@ -80,7 +103,7 @@ async def main():
                 sheet_name=sheet_name
             )
             sheets_client.update_metrics(metrics_to_write)
-            logger.info(f"✅ Backfill successful! {len(metrics_to_write)} days synced.")
+            logger.info(f"✅ Sync successful! {len(metrics_to_write)} days synced.")
         except Exception as e:
             logger.error(f"Sheets update failed: {e}")
 
